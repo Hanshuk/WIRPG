@@ -89,6 +89,8 @@ class ExcelParser:
                 return str(val).strip()
 
             ias_no = get_val("ias_no")
+            if ias_no.endswith(" 00:00:00"):
+                ias_no = ias_no[:-9]
             name = get_val("name")
             ec = get_val("ec")
             full_address = get_val("full_address")
