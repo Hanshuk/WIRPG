@@ -1,6 +1,7 @@
 import os
 import tempfile
 import shutil
+import re
 from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
@@ -8,6 +9,7 @@ from PIL import Image
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 import logging
+from config.constants import ASSETS_DIR
 
 logger = logging.getLogger("CostPlusSolarDocs.pdf_engine")
 
@@ -33,7 +35,7 @@ def _save_temp_jpeg(pil_img: Image.Image) -> str:
     return path
 
 def _render_logo(canvas: canvas.Canvas, logo_path: Path) -> None:
-    if logo_path and logo_path.exists() and logo_path.stat().st_size > 0:
+    if logo_path and logo_path.exists() and logo_path.is_file() and logo_path.stat().st_size > 0:
         try:
             pil_logo = Image.open(logo_path).convert("RGB")
             tmp = _save_temp_jpeg(pil_logo)
@@ -51,7 +53,7 @@ def _render_logo(canvas: canvas.Canvas, logo_path: Path) -> None:
             logger.warning(f"Logo render failed: {exc} — using text fallback")
             _render_logo_fallback(canvas)
     else:
-        logger.warning(f"Logo file not found at {logo_path} — using text fallback")
+        logger.warning(f"Logo file not found or invalid at {logo_path} — using text fallback")
         _render_logo_fallback(canvas)
 
 def _render_logo_fallback(canvas: canvas.Canvas) -> None:
@@ -85,7 +87,7 @@ class PDFEngine:
         ix, iy = x + inner_pad, y + inner_pad
         iw, ih = w - 2*inner_pad, h - 2*inner_pad
         
-        if img_path and os.path.exists(img_path):
+        if img_path and os.path.exists(img_path) and os.path.isfile(img_path):
             try:
                 pil_img = Image.open(img_path).convert("RGB")
                 orig_w, orig_h = pil_img.size
@@ -111,18 +113,27 @@ class PDFEngine:
         c.setFillColorRGB(0, 0, 0)
 
     def generate(self, record, image_paths: Dict[int, str], output_folder: str, logo_path: str = "") -> str:
-        output_filename = f"{record.ias_no}_{record.name}.pdf".replace("/", "_").replace("\\", "_")
+        # Robustly sanitize the filename for Windows/macOS safety
+        safe_ias = re.sub(r'[^a-zA-Z0-9_\-]', '_', str(record.ias_no))
+        safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', str(record.name))
+        output_filename = f"{safe_ias}_{safe_name}.pdf"
+        
         final_path = Path(output_folder) / output_filename
         
         temp_dir = tempfile.mkdtemp()
         temp_pdf = Path(temp_dir) / output_filename
         
+        # Load default logo if not provided or invalid
+        logo = Path(logo_path) if logo_path else ASSETS_DIR / "logo" / "costplus_logo.png"
+        if not logo.exists() or not logo.is_file():
+            logo = ASSETS_DIR / "logo" / "costplus_logo.png"
+
         try:
             c = canvas.Canvas(str(temp_pdf), pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
             
             self._render_page1(c, record, image_paths)
-            self._render_page2(c, record, image_paths, Path(logo_path))
-            self._render_page3(c, record, image_paths, Path(logo_path))
+            self._render_page2(c, record, image_paths, logo)
+            self._render_page3(c, record, image_paths, logo)
             
             c.save()
             
@@ -143,7 +154,7 @@ class PDFEngine:
         avail_w = PAGE_WIDTH - 2 * margin
         avail_h = PAGE_HEIGHT - 2 * margin
         img_path = image_paths.get(1)
-        if img_path and os.path.exists(img_path):
+        if img_path and os.path.exists(img_path) and os.path.isfile(img_path):
             try:
                 pil_img = Image.open(img_path).convert("RGB")
                 orig_w, orig_h = pil_img.size

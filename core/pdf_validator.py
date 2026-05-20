@@ -19,8 +19,8 @@ class PDFValidator:
             return ValidationResult(False, [f"File not found: {pdf_path}"], [])
             
         file_size = os.path.getsize(pdf_path)
-        if file_size < 10240:
-            errors.append(f"PDF file size too small ({file_size} bytes). May be corrupted or empty.")
+        if file_size < 100:
+            errors.append(f"PDF file is empty or corrupted ({file_size} bytes).")
             return ValidationResult(False, errors, warnings)
             
         try:
