@@ -137,9 +137,18 @@ class PDFEngine:
             
             c.save()
             
-            if final_path.exists():
-                os.remove(final_path)
-            shutil.move(str(temp_pdf), str(final_path))
+            try:
+                if final_path.exists():
+                    os.remove(final_path)
+                shutil.move(str(temp_pdf), str(final_path))
+            except OSError as e:
+                logger.info(f"File {final_path} is locked: {e}. Saving with a unique name.")
+                timestamp = datetime.now().strftime("%H%M%S")
+                output_filename = f"{safe_ias}_{safe_name}_{timestamp}.pdf"
+                final_path = Path(output_folder) / output_filename
+                if final_path.exists():
+                    os.remove(final_path)
+                shutil.move(str(temp_pdf), str(final_path))
             return str(final_path)
             
         except Exception as e:
