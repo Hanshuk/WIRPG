@@ -1,6 +1,6 @@
 from db.database import db
 
-def run():
+def run_migrations():
     queries = [
         """
         CREATE TABLE IF NOT EXISTS processing_queue (
