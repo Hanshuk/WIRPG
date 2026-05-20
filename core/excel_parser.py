@@ -136,7 +136,7 @@ class ExcelParser:
                 warnings.append(f"Unparseable DATE INSTALLED: {date_installed}")
 
             records.append(BeneficiaryRecord(
-                row_index=int(idx) + 1,
+                excel_row=int(idx) + 1,
                 ec=ec,
                 ias_no=ias_no,
                 name=name,

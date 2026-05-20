@@ -1,21 +1,21 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 @dataclass
 class BeneficiaryRecord:
-    ias_no: str
-    item_no: str
-    name: str
-    purok_sitio: str
-    barangay: str
-    municipality: str
-    system_box_sn: str
-    solar_panel_sn: str
-    longitude: float
-    latitude: float
-    date_installed: str
     excel_row: int
+    ec: str
+    ias_no: str
+    name: str
+    full_address: str
+    date_installed: str          
+    representative_name: str     
+    relationship: str            
+    longitude: str               
+    latitude: str                
+    validation_errors: List[str] = field(default_factory=list)
+    validation_warnings: List[str] = field(default_factory=list)
 
 @dataclass
 class QueueEntry:

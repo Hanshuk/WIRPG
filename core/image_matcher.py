@@ -18,6 +18,11 @@ class ImageMatchResult:
     flagged: bool
     slot_paths: Dict[int, Optional[Path]]
 
+    def __iter__(self):
+        yield self.matched_folder_path
+        yield self.confidence
+        yield self.match_stage
+
 class ImageMatcher:
     def __init__(self):
         self.index: Dict[str, Path] = {}
@@ -77,6 +82,21 @@ class ImageMatcher:
             if not slots[i]:
                 logger.warning(f"Missing slot {i} in folder {folder_path.name}")
                 
+        return slots
+
+    def get_image_paths(self, folder_path: Path) -> Dict[int, Optional[str]]:
+        slots = {1: None, 2: None, 3: None, 4: None, 5: None, 6: None}
+        if not folder_path:
+            return slots
+        p = Path(folder_path)
+        if not p.exists() or not p.is_dir():
+            return slots
+        for entry in p.iterdir():
+            if entry.is_file() and entry.suffix.lower() in self.supported_exts:
+                stem = entry.stem
+                if stem in [str(i) for i in range(1, 7)]:
+                    slot = int(stem)
+                    slots[slot] = str(entry)
         return slots
 
     def match(self, excel_name: str) -> ImageMatchResult:
