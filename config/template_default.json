@@ -1,0 +1,53 @@
+{
+  "page1": {
+    "header": {
+      "logo": {"x": 36, "y": 780, "width": 60, "height": 60},
+      "title": {"x": 100, "y": 810, "font": "Helvetica-Bold", "size": 14},
+      "subtitle": {"x": 100, "y": 795, "font": "Helvetica", "size": 10}
+    },
+    "beneficiary_table": {
+      "x": 36, "y": 740, "row_height": 20, "font": "Helvetica", "size": 10,
+      "label_width": 130, "value_width": 200
+    },
+    "installation_table": {
+      "x": 36, "y": 590, "row_height": 20, "font": "Helvetica", "size": 10,
+      "label_width": 130, "value_width": 200
+    },
+    "coordinates_block": {
+      "x": 36, "y": 510, "font": "Helvetica-Bold", "size": 10
+    },
+    "image_slot_1": {
+      "x": 320, "y": 580, "width": 240, "height": 180
+    },
+    "image_slot_2": {
+      "x": 320, "y": 380, "width": 240, "height": 180
+    },
+    "footer": {
+      "y": 30, "font": "Helvetica", "size": 8
+    }
+  },
+  "page2": {
+    "header": {"inherit": "page1.header"},
+    "additional_info": {
+      "x": 36, "y": 740, "row_height": 20, "font": "Helvetica", "size": 10
+    },
+    "coordinates_block": {"inherit": "page1.coordinates_block", "y": 600},
+    "certification": {
+      "x": 36, "y": 500, "font": "Helvetica", "size": 10, "line_spacing": 16
+    },
+    "signature_block": {
+      "y": 200, "line_width": 150, "spacing": 60, "font": "Helvetica", "size": 9
+    },
+    "footer": {"inherit": "page1.footer"}
+  },
+  "page3": {
+    "header": {"inherit": "page1.header"},
+    "photo_grid": {
+      "top_left_x": 36, "top_left_y": 580,
+      "cell_width": 240, "cell_height": 200,
+      "padding": 10, "border_color": [180, 180, 180],
+      "label_font": "Helvetica", "label_size": 9
+    },
+    "footer": {"inherit": "page1.footer"}
+  }
+}
