@@ -180,23 +180,32 @@ class PDFEngine:
 
     def _get_fixed_total_records(self, ec: str) -> int:
         ec_clean = str(ec).upper().strip()
-        if "ORMECO" in ec_clean:
+        # 1. COTABATO / COTELCO with PPALMA (check this first before general Cotabato)
+        if "PPALMA" in ec_clean:
             return 2000
-        elif "ALECO" in ec_clean:
-            return 1000
-        elif "COTELCO PPALMA" in ec_clean:
+        # 2. COTABATO / COTELCO general
+        elif "COTABATO" in ec_clean or "COTELCO" in ec_clean:
             return 2000
-        elif "COTELCO" in ec_clean:
+        # 3. ORIENTAL MINDORO / ORMECO
+        elif "ORIENTAL MINDORO" in ec_clean or "ORMECO" in ec_clean:
             return 2000
-        elif "LASURECO" in ec_clean:
+        # 4. ALBAY / ALECO
+        elif "ALBAY" in ec_clean or "ALECO" in ec_clean:
             return 1000
-        elif "DASURECO" in ec_clean:
+        # 5. LANAO DEL SUR / LASURECO
+        elif "LANAO DEL SUR" in ec_clean or "LASURECO" in ec_clean:
             return 1000
-        elif "LEYECO V" in ec_clean or "LEYECO" in ec_clean:
+        # 6. DAVAO DEL SUR / DASURECO
+        elif "DAVAO DEL SUR" in ec_clean or "DASURECO" in ec_clean:
             return 1000
-        elif "QUEZELCO I" in ec_clean or "QUEZELCO" in ec_clean:
+        # 7. LEYTE / LEYECO
+        elif "LEYTE" in ec_clean or "LEYECO" in ec_clean:
             return 1000
-        elif "FIBECO" in ec_clean:
+        # 8. QUEZON / QUEZELCO
+        elif "QUEZON" in ec_clean or "QUEZELCO" in ec_clean:
+            return 1000
+        # 9. FIRST BUKIDNON / FIBECO
+        elif "FIRST BUKIDNON" in ec_clean or "FIBECO" in ec_clean:
             return 1000
         return 3000
 

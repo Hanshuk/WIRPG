@@ -151,7 +151,17 @@ class ManualPanel(QWidget):
         
         # Init inputs
         self.txt_ias = self._add_field(form_layout, "IAS No. *")
-        self.cmb_ec = self._add_combo(form_layout, "EC Number *", ["ORMECO", "ALECO", "COTELCO", "LASURECO", "COTELCO PPALMA", "DASURECO", "LEYECO V", "QUEZELCO I", "FIBECO"])
+        self.cmb_ec = self._add_combo(form_layout, "EC Number *", [
+            "ORIENTAL MINDORO ELECTRIC COOPERATIVE, INC.",
+            "ALBAY ELECTRIC COOPERATIVE, INC.",
+            "COTABATO ELECTRIC COOPERATIVE, INC.",
+            "LANAO DEL SUR ELECTRIC COOPERATIVE, INC.",
+            "COTABATO ELECTRIC COOPERATIVE, INC. - PPALMA",
+            "DAVAO DEL SUR ELECTRIC COOPERATIVE, INC.",
+            "LEYTE ELECTRIC COOPERATIVE, INC.",
+            "QUEZON ELECTRIC COOPERATIVE, INC.",
+            "FIRST BUKIDNON ELECTRIC COOPERATIVE, INC."
+        ])
         self.txt_count = self._add_spin(form_layout, "Beneficiary Count *", 1, 100000, 2000)
         self.txt_name = self._add_field(form_layout, "Beneficiary Name *")
         
@@ -324,7 +334,7 @@ class ManualPanel(QWidget):
                 data = json.load(f)
                 
             fields = data.get("fields", {})
-            self.cmb_ec.setCurrentText(fields.get("ec", "ORMECO"))
+            self._set_ec_combobox(fields.get("ec", ""))
             self.txt_ias.setText(fields.get("ias_no", ""))
             self.txt_name.setText(fields.get("name", ""))
             self.txt_purok.setText(fields.get("purok", ""))
@@ -378,8 +388,35 @@ class ManualPanel(QWidget):
                 pass
         self.on_changed()
 
+    def _set_ec_combobox(self, ec_value: str):
+        ec_clean = str(ec_value).upper().strip()
+        mapped = None
+        if "ORMECO" in ec_clean or "ORIENTAL MINDORO" in ec_clean:
+            mapped = "ORIENTAL MINDORO ELECTRIC COOPERATIVE, INC."
+        elif "ALECO" in ec_clean or "ALBAY" in ec_clean:
+            mapped = "ALBAY ELECTRIC COOPERATIVE, INC."
+        elif "COTELCO PPALMA" in ec_clean or "COTABATO ELECTRIC COOPERATIVE, INC. - PPALMA" in ec_clean:
+            mapped = "COTABATO ELECTRIC COOPERATIVE, INC. - PPALMA"
+        elif "COTELCO" in ec_clean or "COTABATO" in ec_clean:
+            mapped = "COTABATO ELECTRIC COOPERATIVE, INC."
+        elif "LASURECO" in ec_clean or "LANAO DEL SUR" in ec_clean:
+            mapped = "LANAO DEL SUR ELECTRIC COOPERATIVE, INC."
+        elif "DASURECO" in ec_clean or "DAVAO DEL SUR" in ec_clean:
+            mapped = "DAVAO DEL SUR ELECTRIC COOPERATIVE, INC."
+        elif "LEYECO" in ec_clean or "LEYTE" in ec_clean:
+            mapped = "LEYTE ELECTRIC COOPERATIVE, INC."
+        elif "QUEZELCO" in ec_clean or "QUEZON" in ec_clean:
+            mapped = "QUEZON ELECTRIC COOPERATIVE, INC."
+        elif "FIBECO" in ec_clean or "FIRST BUKIDNON" in ec_clean:
+            mapped = "FIRST BUKIDNON ELECTRIC COOPERATIVE, INC."
+            
+        if mapped:
+            self.cmb_ec.setCurrentText(mapped)
+        else:
+            self.cmb_ec.setCurrentText("ORIENTAL MINDORO ELECTRIC COOPERATIVE, INC.")
+
     def load_record(self, record_dict: dict):
-        self.cmb_ec.setCurrentText(record_dict.get("ec", "ORMECO"))
+        self._set_ec_combobox(record_dict.get("ec", ""))
         self.txt_ias.setText(record_dict.get("ias_no", ""))
         self.txt_name.setText(record_dict.get("name", ""))
         self.txt_address.setText(record_dict.get("full_address", ""))
