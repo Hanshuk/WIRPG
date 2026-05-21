@@ -62,4 +62,20 @@ def run_migrations():
     with db.connection() as conn:
         for q in queries:
             conn.execute(q)
+        
+        # Add metadata columns to processing_queue if not present
+        cursor = conn.execute("PRAGMA table_info(processing_queue)")
+        columns = [row['name'] for row in cursor.fetchall()]
+        
+        new_cols = {
+            "error_type": "TEXT",
+            "missing_fields": "TEXT",
+            "missing_images": "TEXT",
+            "suggested_fix": "TEXT",
+            "timestamp": "TEXT"
+        }
+        for col_name, col_type in new_cols.items():
+            if col_name not in columns:
+                conn.execute(f"ALTER TABLE processing_queue ADD COLUMN {col_name} {col_type}")
+                
         conn.commit()
