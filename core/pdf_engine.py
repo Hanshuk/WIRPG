@@ -33,10 +33,10 @@ def _preprocess_image(img_path: str, target_w: float, target_h: float) -> Option
         return None
     try:
         pil_img = Image.open(img_path)
-        # 1. EXIF orientation transposition correction (Requirement 5)
+        # 1. EXIF orientation transposition correction
         pil_img = ImageOps.exif_transpose(pil_img).convert("RGB")
         
-        # 2. Smart centered aspect ratio cropping to match bounding box perfectly (Requirement 5)
+        # 2. Smart centered aspect ratio cropping to match bounding box perfectly
         orig_w, orig_h = pil_img.size
         target_aspect = target_w / target_h
         orig_aspect = orig_w / orig_h
@@ -53,8 +53,7 @@ def _preprocess_image(img_path: str, target_w: float, target_h: float) -> Option
                 top = (orig_h - new_h) / 2
                 pil_img = pil_img.crop((0, top, orig_w, top + new_h))
         
-        # 3. Smart anti-aliasing high-resolution scaling & compression optimization (Requirement 6)
-        # Limit the pixel dimensions to 4x the target size (approx 300 DPI) to prevent excessive PDF sizes
+        # 3. Smart anti-aliasing high-resolution scaling & compression optimization
         max_px_w = int(target_w * 4.0)
         max_px_h = int(target_h * 4.0)
         if pil_img.width > max_px_w or pil_img.height > max_px_h:
@@ -68,18 +67,16 @@ def _preprocess_image(img_path: str, target_w: float, target_h: float) -> Option
 def _save_temp_jpeg(pil_img: Image.Image) -> str:
     fd, path = tempfile.mkstemp(suffix=".jpg")
     os.close(fd)
-    # Save with excellent compression/quality ratio to prevent blurry or heavy files (Requirement 6)
     pil_img.save(path, "JPEG", quality=90)
     return path
 
 def _render_logo(canvas: canvas.Canvas, logo_path: Path) -> None:
     if logo_path and logo_path.exists() and logo_path.is_file() and logo_path.stat().st_size > 0:
         try:
-            # Handle orientation for logo too
             pil_logo = Image.open(logo_path)
             pil_logo = ImageOps.exif_transpose(pil_logo).convert("RGB")
             
-            # Dynamic logo aspect-ratio fitting (Requirement 1)
+            # Dynamic logo aspect-ratio fitting
             orig_w, orig_h = pil_logo.size
             scale = min(LOGO_RENDER_W / orig_w, LOGO_RENDER_H / orig_h)
             draw_w = orig_w * scale
@@ -89,7 +86,6 @@ def _render_logo(canvas: canvas.Canvas, logo_path: Path) -> None:
             draw_x = LOGO_X + (LOGO_RENDER_W - draw_w) / 2
             draw_y = LOGO_DRAW_Y + (LOGO_RENDER_H - draw_h) / 2
             
-            # Anti-aliased high quality render
             max_px_w = int(draw_w * 4.0)
             max_px_h = int(draw_h * 4.0)
             if pil_logo.width > max_px_w or pil_logo.height > max_px_h:
@@ -136,7 +132,6 @@ class PDFEngine:
         return text + "..."
 
     def _draw_scaled_string(self, canvas: canvas.Canvas, text: str, font: str, default_size: float, min_size: float, max_width: float, x: float, y: float, anchor: str = "left"):
-        # Dynamic text scaling protection (Requirement 3)
         size = default_size
         while size >= min_size:
             if canvas.stringWidth(text, font, size) <= max_width:
@@ -183,6 +178,28 @@ class PDFEngine:
         c.drawCentredString(x + w/2, y + h/2 - 3, "IMAGE NOT AVAILABLE")
         c.setFillColorRGB(0, 0, 0)
 
+    def _get_fixed_total_records(self, ec: str) -> int:
+        ec_clean = str(ec).upper().strip()
+        if "ORMECO" in ec_clean:
+            return 2000
+        elif "ALECO" in ec_clean:
+            return 1000
+        elif "COTELCO PPALMA" in ec_clean:
+            return 2000
+        elif "COTELCO" in ec_clean:
+            return 2000
+        elif "LASURECO" in ec_clean:
+            return 1000
+        elif "DASURECO" in ec_clean:
+            return 1000
+        elif "LEYECO V" in ec_clean or "LEYECO" in ec_clean:
+            return 1000
+        elif "QUEZELCO I" in ec_clean or "QUEZELCO" in ec_clean:
+            return 1000
+        elif "FIBECO" in ec_clean:
+            return 1000
+        return 3000
+
     def generate(self, record, image_paths: Dict[int, str], output_folder: str, logo_path: str = "", total_records: int = 3000) -> str:
         safe_ias = re.sub(r'[^a-zA-Z0-9_\-]', '_', str(record.ias_no))
         safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', str(record.name))
@@ -200,8 +217,11 @@ class PDFEngine:
         try:
             c = canvas.Canvas(str(temp_pdf), pagesize=(PAGE_WIDTH, PAGE_HEIGHT))
             
+            # Map dynamic total records based on EC cooperative name mapping table
+            fixed_total = self._get_fixed_total_records(record.ec)
+            
             self._render_page1(c, record, image_paths)
-            self._render_page2(c, record, image_paths, logo, total_records)
+            self._render_page2(c, record, image_paths, logo, fixed_total)
             self._render_page3(c, record, image_paths, logo)
             
             c.save()
@@ -259,22 +279,16 @@ class PDFEngine:
         c.setPageSize((PAGE_WIDTH, PAGE_HEIGHT))
         _render_logo(c, logo_path)
         
-        # Dynamic layout engine cursor (Requirement 8)
-        y_cursor = 752.0  # Spacing below logo safe-zone
+        y_cursor = 752.0  # Spacing below logo
         
-        # 1. Dynamic Title Block with Dynamic Wrap Engine (Requirement 2)
+        # 1. Dynamic Title Block (Outline Box Removed for Cleaner, Premium Layout)
         title_box_h = 48.0
         title_box_y = y_cursor - title_box_h
-        
-        c.setLineWidth(0.5)
-        c.setStrokeColorRGB(0, 0, 0)
-        c.rect(58, title_box_y, 478, title_box_h)
         
         c.setFont("Helvetica-Bold", 8.0)
         c.drawCentredString(297, title_box_y + 36, "SUPPLY, INSTALLATION, TESTING, AND COMMISSIONING OF SOLAR PV MAINSTREAMING FOR")
         
         ec_val = self._safe_str(record.ec).upper()
-        # Scale and render the cooperative name dynamically
         self._draw_scaled_string(c, ec_val, "Helvetica-Bold", 9.0, 7.5, 468, 297, title_box_y + 24, "center")
         
         c.setFont("Helvetica-Bold", 8.0)
@@ -282,10 +296,9 @@ class PDFEngine:
         
         y_cursor = title_box_y - 10.0
         
-        # 2. Beneficiary Info Block with Name Protection (Requirement 3)
+        # 2. Beneficiary Info Block (Outline Box Removed as Requested)
         info_box_h = 56.0
         info_box_y = y_cursor - info_box_h
-        c.rect(58, info_box_y, 478, info_box_h)
         
         c.setFont("Helvetica-Bold", 9)
         c.drawString(63, info_box_y + 44, "IAS NO.")
@@ -294,6 +307,7 @@ class PDFEngine:
         c.drawString(63, info_box_y + 5, "DATE OF INSTALLATION:")
         
         c.setFont("Helvetica", 9)
+        # Shift values horizontally to align beautifully
         self._draw_scaled_string(c, self._safe_str(record.ias_no), "Helvetica", 9, 7.5, 320, 200, info_box_y + 44)
         self._draw_scaled_string(c, self._safe_str(record.name), "Helvetica", 9, 7.5, 320, 200, info_box_y + 31)
         self._draw_scaled_string(c, self._safe_str(record.full_address), "Helvetica", 9, 7.5, 320, 200, info_box_y + 18)
@@ -301,16 +315,16 @@ class PDFEngine:
         
         y_cursor = info_box_y - 8.0
         
-        # 3. Representative Warning and Info Box
+        # 3. Unavailability Instruction Warning
         c.setFont("Helvetica", 7.5)
         c.drawString(63, y_cursor - 8, "In case of unavailability of registered beneficiary during installation and documentation,")
         c.drawString(63, y_cursor - 18, "please fill out the necessary information:")
         
         y_cursor = y_cursor - 22.0
         
+        # 4. Representative Box (Outline Box Removed as Requested)
         rep_box_h = 24.0
         rep_box_y = y_cursor - rep_box_h
-        c.rect(58, rep_box_y, 478, rep_box_h)
         
         c.setFont("Helvetica-Bold", 8.5)
         c.drawString(63, rep_box_y + 13, "NAME OF REPRESENTATIVE:")
@@ -322,8 +336,8 @@ class PDFEngine:
         
         y_cursor = rep_box_y - 12.0
         
-        # 4. Two Portrait Image cells
-        image_h = 280.0
+        # 5. Image cells (Taller Image cells set to 320.0 pt for signatures visibility)
+        image_h = 320.0
         image_y = y_cursor - image_h
         
         self._draw_image_cell(c, 58, image_y, IMG_CELL_W, image_h, image_paths.get(1))
@@ -333,9 +347,9 @@ class PDFEngine:
         c.drawCentredString(176.37, image_y - 10, "DULY ACCOMPLISHED IAS FORM")
         c.drawCentredString(434.37, image_y - 10, "GEOTAGGED PHOTO OF SOLAR PANEL W/BENEFICIARY")
         
-        # 5. GPS Box under right image
+        # 6. GPS Box under right image
         gps_box_h = 36.0
-        gps_box_y = image_y - 50.0
+        gps_box_y = image_y - 54.0
         c.rect(316, gps_box_y, 236.74, gps_box_h)
         
         c.setFont("Helvetica-Bold", 7.5)
@@ -354,33 +368,33 @@ class PDFEngine:
         c.setPageSize((PAGE_WIDTH, PAGE_HEIGHT))
         _render_logo(c, logo_path)
         
-        # Redesigned 2x2 Portrait grid layout with expanded bottom guard safety zones (Requirement 4 & 7)
-        # Row 1 (Top Row)
-        self._draw_image_cell(c, 58, 470, IMG_CELL_W, 240, image_paths.get(3))
-        self._draw_image_cell(c, 316, 470, IMG_CELL_W, 240, image_paths.get(4))
+        # Redesigned 2x2 portrait layout (Image heights expanded to 265.0 pt)
+        # Row 1 Cells
+        self._draw_image_cell(c, 58, 475, IMG_CELL_W, 265, image_paths.get(3))
+        self._draw_image_cell(c, 316, 475, IMG_CELL_W, 265, image_paths.get(4))
         
         c.setFont("Helvetica-Bold", 7.5)
-        c.drawCentredString(176.37, 452, "GEOTAGGED PHOTO OF SYSTEM BOX")
-        c.drawCentredString(434.37, 452, "GEOTAGGED PHOTO OF LIGHTING FIXTURE")
+        c.drawCentredString(176.37, 460, "GEOTAGGED PHOTO OF SYSTEM BOX")
+        c.drawCentredString(434.37, 460, "GEOTAGGED PHOTO OF LIGHTING FIXTURE")
         
-        # Row 2 (Bottom Row)
-        self._draw_image_cell(c, 58, 100, IMG_CELL_W, 240, image_paths.get(5))
-        self._draw_image_cell(c, 316, 100, IMG_CELL_W, 240, image_paths.get(6))
+        # Row 2 Cells
+        self._draw_image_cell(c, 58, 110, IMG_CELL_W, 265, image_paths.get(5))
+        self._draw_image_cell(c, 316, 110, IMG_CELL_W, 265, image_paths.get(6))
         
         c.setFont("Helvetica-Bold", 7.5)
-        c.drawCentredString(176.37, 82, "GEOTAGGED PHOTO OF FLASHLIGHT & RADIO")
-        c.drawCentredString(434.37, 82, "GEOTAGGED PHOTO OF RFID CARD")
+        c.drawCentredString(176.37, 95, "GEOTAGGED PHOTO OF FLASHLIGHT & RADIO")
+        c.drawCentredString(434.37, 95, "GEOTAGGED PHOTO OF RFID CARD")
         
-        # Metadata loops with collision/overflow protection (Requirement 3, 4, 8)
-        # VX has been moved further right to 125/383 to maximize name field width (Requirement 3)
+        # Metadata rendering with Lessened separation gaps and Date overlap protection
+        # VX has been moved further right to 175/435 specifically for DATE to prevent label overlap
         cells = [
-            (62, 125, 405),   # Row 1 Left
-            (320, 383, 405),  # Row 1 Right
-            (62, 125, 65),    # Row 2 Left
-            (320, 383, 65)    # Row 2 Right
+            (62, 125, 175, 445),   # Row 1 Left:  (lx, vx, date_vx, y)
+            (320, 383, 435, 445),  # Row 1 Right: (lx, vx, date_vx, y)
+            (62, 125, 175, 80),    # Row 2 Left:  (lx, vx, date_vx, y)
+            (320, 383, 435, 80)    # Row 2 Right: (lx, vx, date_vx, y)
         ]
         
-        for lx, vx, y in cells:
+        for lx, vx, date_vx, y in cells:
             c.setFont("Helvetica-Bold", 7.5)
             c.drawString(lx, y, "NAME:")
             c.drawString(lx, y - 10, "LONGITUDE:")
@@ -388,10 +402,10 @@ class PDFEngine:
             c.drawString(lx, y - 30, "DATE OF INSTALLATION:")
             
             c.setFont("Helvetica", 7.5)
-            # Safe Beneficiary Name wrapping/scaling protection (Requirement 3)
             self._draw_scaled_string(c, self._safe_str(record.name), "Helvetica", 7.5, 6.0, 160, vx, y)
             self._draw_scaled_string(c, self._safe_str(record.longitude), "Helvetica", 7.5, 6.0, 160, vx, y - 10)
             self._draw_scaled_string(c, self._safe_str(record.latitude), "Helvetica", 7.5, 6.0, 160, vx, y - 20)
-            self._draw_scaled_string(c, self._safe_str(record.date_installed), "Helvetica", 7.5, 6.0, 160, vx, y - 30)
+            # Use shifted date_vx to prevent overlapping with "DATE OF INSTALLATION:" label
+            self._draw_scaled_string(c, self._safe_str(record.date_installed), "Helvetica", 7.5, 6.0, 110, date_vx, y - 30)
             
         c.showPage()
