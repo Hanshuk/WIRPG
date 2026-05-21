@@ -51,7 +51,7 @@ class PDFWorker(QThread):
                 
                 self._update_heartbeat()
                 
-                pdf_path = self.pdf_engine.generate(record, image_paths, self.output_folder)
+                pdf_path = self.pdf_engine.generate(record, image_paths, self.output_folder, total_records=len(self.records))
                 
                 self._update_heartbeat()
                 
