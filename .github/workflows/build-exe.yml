@@ -25,10 +25,10 @@ jobs:
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --noconfirm --windowed --icon "assets/icons/app_icon.ico" --name "CostplusIRReportGenerator" "main.py"
+        pyinstaller build.spec --clean --noconfirm
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: CostplusIRReportGenerator-Windows-EXE
-        path: dist/CostplusIRReportGenerator.exe
+        name: CostPlusSolarDocs-Windows-EXE
+        path: dist/CostPlusSolarDocs.exe
