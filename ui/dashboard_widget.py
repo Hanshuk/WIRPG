@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt, QTimer
 from db.database import db
 from core.queue_manager import QueueManager
 from logging_engine.logger import app_logger
+import sqlite3
 
 class DashboardWidget(QWidget):
     def __init__(self):
@@ -68,7 +69,12 @@ class DashboardWidget(QWidget):
         
         lbl_prog_title = QLabel("Active Batch Progress Tracker")
         lbl_prog_title.setStyleSheet("font-weight: bold; font-size: 12px;")
+        
+        self.lbl_current_name = QLabel("Waiting to start...")
+        self.lbl_current_name.setStyleSheet("font-size: 14px; font-weight: bold; color: #0078D4;")
+        
         lyt_gauge.addWidget(lbl_prog_title)
+        lyt_gauge.addWidget(self.lbl_current_name)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -77,9 +83,9 @@ class DashboardWidget(QWidget):
         lyt_gauge.addWidget(self.progress_bar)
         
         lyt_speed_eta = QHBoxLayout()
-        self.lbl_speed = QLabel("Processing Speed: 0.00 records/sec")
-        self.lbl_speed.setStyleSheet("font-size: 11px; color: #888888;")
-        self.lbl_eta = QLabel("Estimated Time Remaining (ETA): N/A")
+        self.lbl_speed = QLabel("Count: 0 of 0")
+        self.lbl_speed.setStyleSheet("font-size: 11px; font-weight: bold;")
+        self.lbl_eta = QLabel("Estimated Time Remaining: N/A")
         self.lbl_eta.setStyleSheet("font-size: 11px; color: #888888;")
         
         lyt_speed_eta.addWidget(self.lbl_speed)
@@ -121,7 +127,11 @@ class DashboardWidget(QWidget):
         # Update Timer (1 second interval)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh_analytics)
-        self.timer.start(1000)
+        # Defer first refresh by 500ms to allow widget initialization
+        QTimer.singleShot(500, self.timer.start)
+        # We start the timer with 1000ms after the singleShot fires, 
+        # but to make sure refresh runs on the first 500ms:
+        QTimer.singleShot(500, self.refresh_analytics)
         
     def _create_metric_card(self, title: str, val: str, border_color: str) -> QFrame:
         card = QFrame()
@@ -153,11 +163,21 @@ class DashboardWidget(QWidget):
 
     def refresh_analytics(self):
         try:
-            stats = {}
+            stats = {
+                "total": 0, "completed": 0, "pending": 0, "processing": 0, 
+                "failed": 0, "skipped": 0, "flagged": 0, "recovered": 0, 
+                "retried": 0, "missing_imgs": 0, "validation_fails": 0
+            }
             with db.connection() as conn:
+                # 0. Readiness Check
+                cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='processing_queue'")
+                if not cur.fetchone():
+                    # Migrations haven't run yet, skip refresh
+                    return
+                    
                 # 1. Total Records
                 cur = conn.execute("SELECT COUNT(*) FROM processing_queue")
-                stats["total"] = cur.fetchone()[0]
+                stats["total"] = cur.fetchone()[0] or 0
                 
                 # 2. Status counts
                 cur = conn.execute("SELECT status, COUNT(*) FROM processing_queue GROUP BY status")
@@ -172,7 +192,7 @@ class DashboardWidget(QWidget):
                 
                 # 3. Recovered (completed after at least 1 retry)
                 cur = conn.execute("SELECT COUNT(*) FROM processing_queue WHERE status = 'COMPLETED' AND retry_count > 0")
-                stats["recovered"] = cur.fetchone()[0]
+                stats["recovered"] = cur.fetchone()[0] or 0
                 
                 # 4. Retried
                 cur = conn.execute("SELECT SUM(retry_count) FROM processing_queue")
@@ -180,11 +200,11 @@ class DashboardWidget(QWidget):
                 
                 # 5. Missing images
                 cur = conn.execute("SELECT COUNT(*) FROM processing_queue WHERE error_type = 'MISSING_IMAGES' OR missing_images != ''")
-                stats["missing_imgs"] = cur.fetchone()[0]
+                stats["missing_imgs"] = cur.fetchone()[0] or 0
                 
                 # 6. Validation Failures
                 cur = conn.execute("SELECT COUNT(*) FROM processing_queue WHERE error_message LIKE '%Validation%'")
-                stats["validation_fails"] = cur.fetchone()[0]
+                stats["validation_fails"] = cur.fetchone()[0] or 0
 
             # Update Stat Values Natively
             for key, val in stats.items():
@@ -193,53 +213,83 @@ class DashboardWidget(QWidget):
                     
             # Update Progress Bar
             total = stats["total"]
-            processed = stats["completed"] + stats["failed"] + stats["skipped"]
+            completed = stats["completed"] + stats["failed"] + stats["skipped"] + stats["flagged"]
+            
             if total > 0:
-                percent = int((processed / total) * 100)
-                self.progress_bar.setValue(percent)
-            else:
-                self.progress_bar.setValue(0)
+                self.progress_bar.setMaximum(total)
+                self.progress_bar.setValue(completed)
                 
-            # Live ETA & Throughput Estimations
-            if stats["processing"] > 0 or stats["pending"] > 0:
-                self.lbl_status_badge.setText("Processing Batch")
-                self.lbl_status_badge.setStyleSheet("""
-                    background-color: #107C41; color: white; border-radius: 4px; 
-                    padding: 3px 8px; font-size: 11px; font-weight: bold;
-                """)
-                
-                if self.start_time is None:
-                    self.start_time = time.time()
-                    self.completed_at_start = processed
-                
-                elapsed = time.time() - self.start_time
-                new_completed = processed - self.completed_at_start
-                
-                if elapsed > 1 and new_completed > 0:
-                    speed = new_completed / elapsed
-                    self.lbl_speed.setText(f"Processing Speed: {speed:.2f} records/sec")
+                # Fetch currently processing item to show name
+                cur_proc = None
+                with db.connection() as conn:
+                    cur = conn.execute("SELECT name FROM processing_queue WHERE status = 'PROCESSING' LIMIT 1")
+                    row = cur.fetchone()
+                    if row: cur_proc = row[0]
                     
-                    remaining = total - processed
-                    eta_sec = remaining / speed
-                    eta_str = str(timedelta(seconds=int(eta_sec)))
-                    self.lbl_eta.setText(f"Estimated Time Remaining (ETA): {eta_str}")
+                if cur_proc:
+                    self.lbl_current_name.setText(f"Now processing: {cur_proc}")
                 else:
-                    self.lbl_speed.setText("Processing Speed: Calculating...")
-                    self.lbl_eta.setText("Estimated Time Remaining (ETA): Calculating...")
+                    self.lbl_current_name.setText(f"Waiting...")
+                    
+                if self.start_time is None and stats["processing"] > 0:
+                    self.start_time = time.time()
+                    self.completed_at_start = completed
+                    
+                if self.start_time and stats["processing"] > 0:
+                    self.lbl_status_badge.setText("Batch Running")
+                    self.lbl_status_badge.setStyleSheet("""
+                        background-color: #0078D4; color: white; border-radius: 4px; 
+                        padding: 3px 8px; font-size: 11px; font-weight: bold;
+                    """)
+                    
+                    elapsed = time.time() - self.start_time
+                    processed_since = completed - self.completed_at_start
+                    
+                    if processed_since > 0 and elapsed > 5:
+                        speed = processed_since / elapsed
+                        rem = total - completed
+                        eta_secs = int(rem / speed) if speed > 0 else 0
+                        
+                        # Convert to plain language ETA
+                        if eta_secs < 60:
+                            eta_text = f"About {eta_secs} seconds left"
+                        elif eta_secs < 3600:
+                            eta_text = f"About {eta_secs // 60} minutes left"
+                        else:
+                            eta_text = f"About {eta_secs // 3600} hours and {(eta_secs % 3600) // 60} minutes left"
+                            
+                        safe_total = total if total > 0 else 1
+                        self.lbl_speed.setText(f"Count: {completed} of {total} ({(completed / safe_total * 100):.0f}%)")
+                        self.lbl_eta.setText(eta_text)
+                elif completed >= total and total > 0:
+                    self.lbl_status_badge.setText("Batch Complete")
+                    self.lbl_status_badge.setStyleSheet("""
+                        background-color: #107C41; color: white; border-radius: 4px; 
+                        padding: 3px 8px; font-size: 11px; font-weight: bold;
+                    """)
+                    self.lbl_current_name.setText("Done")
+                    self.lbl_speed.setText(f"Count: {total} of {total} (100%)")
+                    self.lbl_eta.setText("Finished")
+                    self.start_time = None
             else:
+                self.progress_bar.setMaximum(100)
+                self.progress_bar.setValue(0)
+                self.lbl_speed.setText("Count: 0 of 0")
+                self.lbl_eta.setText("Estimated Time Remaining: N/A")
                 self.lbl_status_badge.setText("System Idle")
                 self.lbl_status_badge.setStyleSheet("""
                     background-color: #555555; color: white; border-radius: 4px; 
                     padding: 3px 8px; font-size: 11px; font-weight: bold;
                 """)
-                self.lbl_speed.setText("Processing Speed: 0.00 records/sec")
-                self.lbl_eta.setText("Estimated Time Remaining (ETA): N/A")
+                self.lbl_current_name.setText("Waiting to start...")
                 self.start_time = None
                 
             # Refresh Worker thread heartbeats list
             self._update_worker_threads()
             self._update_recovery_logs()
             
+        except sqlite3.OperationalError:
+            pass # Silent retry on next tick
         except Exception as e:
             app_logger.error(f"Dashboard analytics update failed: {e}")
 

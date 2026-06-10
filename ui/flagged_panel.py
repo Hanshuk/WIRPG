@@ -1,15 +1,18 @@
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QLineEdit, QComboBox, QPushButton, QTableView, 
-                               QHeaderView, QMessageBox, QAbstractItemView)
+                               QHeaderView, QMessageBox, QAbstractItemView, QStackedWidget)
 from PySide6.QtCore import Qt, Signal
 from ui.widgets.flagged_model import FlaggedRecordsModel
 from utils.log_exporter import LogExporter
 from core.reprocessing import ReprocessingSystem
 from logging_engine.logger import app_logger
+from db.database import db
+import os
 
 class FlaggedPanel(QWidget):
     load_record_to_manual = Signal(dict)
     reprocess_triggered = Signal()
+    show_banner = Signal(str, str) # type ("success", "warning", "error"), message
 
     def __init__(self):
         super().__init__()
@@ -19,22 +22,26 @@ class FlaggedPanel(QWidget):
         layout.setContentsMargins(15, 15, 15, 15)
         
         # Title
-        title = QLabel("Flagged & Invalid Records Management")
+        title = QLabel("Flagged Records")
         title.setStyleSheet("font-size: 20px; font-weight: bold; margin-bottom: 5px;")
+        title.setToolTip("Records that failed processing and need your attention.")
         layout.addWidget(title)
         
         # Search & Filter Layout
         lyt_controls = QHBoxLayout()
         
         self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("Search by IAS No. or Name...")
+        self.txt_search.setPlaceholderText("Search by Name...")
+        self.txt_search.setToolTip("Type a name to find specific flagged records.")
         self.txt_search.textChanged.connect(self.filter_data)
         
         self.cmb_filter = QComboBox()
         self.cmb_filter.addItems(["All", "Missing Images", "Invalid Coordinates", "Validation Failures"])
+        self.cmb_filter.setToolTip("Filter the list by type of problem.")
         self.cmb_filter.currentTextChanged.connect(self.filter_data)
         
         btn_refresh = QPushButton("Refresh")
+        btn_refresh.setToolTip("Click to update the list.")
         btn_refresh.clicked.connect(self.refresh_data)
         
         lyt_controls.addWidget(self.txt_search, 4)
@@ -42,12 +49,23 @@ class FlaggedPanel(QWidget):
         lyt_controls.addWidget(btn_refresh, 1)
         layout.addLayout(lyt_controls)
         
+        self.stack = QStackedWidget()
+        
+        # Empty State
+        self.empty_widget = QWidget()
+        empty_layout = QVBoxLayout(self.empty_widget)
+        lbl_empty = QLabel("No issues found — all records are clean")
+        lbl_empty.setAlignment(Qt.AlignCenter)
+        lbl_empty.setStyleSheet("color: #888888; font-size: 18px; font-weight: bold;")
+        empty_layout.addWidget(lbl_empty)
+        
         # Table View
         self.table_view = QTableView()
+        self.table_view.setToolTip("List of records that need to be fixed.")
         self.model = FlaggedRecordsModel()
+        self.model.modelReset.connect(self._check_empty)
         self.table_view.setModel(self.model)
         
-        # Customizing table visual appearance
         self.table_view.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table_view.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table_view.setAlternatingRowColors(True)
@@ -57,23 +75,28 @@ class FlaggedPanel(QWidget):
         self.table_view.horizontalHeader().resizeSection(0, 110)
         self.table_view.horizontalHeader().resizeSection(1, 160)
         
-        layout.addWidget(self.table_view)
+        self.stack.addWidget(self.empty_widget)
+        self.stack.addWidget(self.table_view)
+        layout.addWidget(self.stack)
         
         # Bottom Actions Bar
         lyt_actions = QHBoxLayout()
         
         btn_fix = QPushButton("Fix Inline")
+        btn_fix.setToolTip("Fix the selected record manually.")
         btn_fix.clicked.connect(self.fix_inline)
         
         btn_scan = QPushButton("Auto-Scan Folders")
-        btn_scan.setToolTip("Auto-detect added missing images from designate folder")
+        btn_scan.setToolTip("Automatically detect if you added missing photos.")
         btn_scan.clicked.connect(self.auto_scan_folders)
         
         btn_export = QPushButton("Export Excel Log")
+        btn_export.setToolTip("Save this list as an Excel file.")
         btn_export.clicked.connect(self.export_excel)
         
         btn_reprocess = QPushButton("Reprocess Flagged")
-        btn_reprocess.setStyleSheet("background-color: #107C41; color: white;") # Green shade
+        btn_reprocess.setStyleSheet("background-color: #107C41; color: white;")
+        btn_reprocess.setToolTip("Try to process the flagged records again.")
         btn_reprocess.clicked.connect(self.reprocess_flagged)
         
         lyt_actions.addWidget(btn_fix)
@@ -83,7 +106,14 @@ class FlaggedPanel(QWidget):
         lyt_actions.addWidget(btn_reprocess)
         
         layout.addLayout(lyt_actions)
+        self._check_empty()
         
+    def _check_empty(self):
+        if self.model.rowCount() == 0:
+            self.stack.setCurrentWidget(self.empty_widget)
+        else:
+            self.stack.setCurrentWidget(self.table_view)
+
     def refresh_data(self):
         self.model.refresh_data(self.txt_search.text(), self.cmb_filter.currentText())
         
@@ -93,7 +123,7 @@ class FlaggedPanel(QWidget):
     def fix_inline(self):
         indexes = self.table_view.selectionModel().selectedRows()
         if not indexes:
-            QMessageBox.warning(self, "No Selection", "Please select a flagged record to fix.")
+            self.show_banner.emit("warning", "Please select a record to fix.")
             return
             
         row = indexes[0].row()
@@ -102,7 +132,6 @@ class FlaggedPanel(QWidget):
             self.load_record_to_manual.emit(record_dict)
             
     def auto_scan_folders(self):
-        # We can fetch the last selected images folder from session_state
         from core.recovery_manager import RecoveryManager
         rm = RecoveryManager()
         sess = rm.get_running_session()
@@ -111,40 +140,35 @@ class FlaggedPanel(QWidget):
         if sess and sess.get("images_folder"):
             images_dir = sess["images_folder"]
         else:
-            # Fallback check
             with db.connection() as conn:
                 cur = conn.execute("SELECT images_folder FROM session_state ORDER BY started_at DESC LIMIT 1")
                 row = cur.fetchone()
                 if row: images_dir = row["images_folder"]
                 
         if not images_dir or not os.path.exists(images_dir):
-            QMessageBox.information(self, "Images Folder Missing", 
-                                    "No active batch images folder found. Please select images folder or fix record in Manual Mode.")
+            self.show_banner.emit("warning", "No photos folder found. Select it in the Batch panel first.")
             return
             
         count, names = self.reprocessor.auto_detect_corrections(images_dir)
         self.refresh_data()
         
         if count > 0:
-            QMessageBox.information(self, "Scan Complete", 
-                                    f"Successfully auto-corrected {count} records: {', '.join(names)}.\nThey have been reset to PENDING status.")
+            self.show_banner.emit("success", f"Successfully auto-corrected {count} records. They are ready to process.")
         else:
-            QMessageBox.information(self, "Scan Complete", "No new image matches or corrections were detected in the images folder.")
+            self.show_banner.emit("warning", "No new photo matches were detected.")
             
     def export_excel(self):
         try:
             paths = LogExporter.export_all()
-            QMessageBox.information(self, "Export Successful", 
-                                    f"Flagged records spreadsheet generated at:\n{paths.get('flagged_xlsx')}")
+            self.show_banner.emit("success", f"List saved to: {paths.get('flagged_xlsx')}")
         except Exception as e:
-            QMessageBox.critical(self, "Export Failed", f"Failed to export error spreadsheet: {e}")
+            self.show_banner.emit("error", f"Failed to save spreadsheet: {e}")
             
     def reprocess_flagged(self):
         count = self.reprocessor.reset_flagged_to_pending()
         self.refresh_data()
         if count > 0:
-            QMessageBox.information(self, "Reprocessing Triggered", 
-                                    f"{count} flagged records were reset to PENDING and are ready for batch processing.")
+            self.show_banner.emit("success", f"{count} records are ready to be processed again.")
             self.reprocess_triggered.emit()
         else:
-            QMessageBox.information(self, "Zero Records", "No flagged records are ready to be reprocessed.")
+            self.show_banner.emit("warning", "No flagged records are ready to be reprocessed.")

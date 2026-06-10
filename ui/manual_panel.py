@@ -5,127 +5,27 @@ from pathlib import Path
 from typing import Dict, Optional
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                                QLineEdit, QComboBox, QSpinBox, QDateEdit, 
-                               QPushButton, QFileDialog, QMessageBox, QSplitter,
+                               QPushButton, QFileDialog, QSplitter,
                                QScrollArea, QFrame, QGridLayout)
 from PySide6.QtCore import Qt, QDate, Signal, Slot
-from PySide6.QtGui import QDoubleValidator, QPixmap
+from PySide6.QtGui import QDoubleValidator
 from db.database import db
 from core.pdf_engine import PDFEngine
 from core.validation_engine import ValidationEngine
+from db.models import BeneficiaryRecord
 from config.constants import DB_DIR
+from ui.widgets.drag_drop_zone import DragDropZone
 
 logger = logging.getLogger("CostPlusSolarDocs.manual_panel")
 
-class ImageUploadSlot(QFrame):
-    image_changed = Signal(int, str) # slot_num, path
-
-    def __init__(self, slot_num: int, title: str):
-        super().__init__()
-        self.slot_num = slot_num
-        self.title = title
-        self.image_path = None
-        
-        self.setAcceptDrops(True)
-        self.setFrameShape(QFrame.StyledPanel)
-        self.setMinimumSize(180, 140)
-        
-        self.setStyleSheet("""
-            QFrame {
-                border: 2px dashed #0078D4;
-                border-radius: 6px;
-                background-color: palette(alternate-base);
-            }
-            QFrame:hover {
-                border-color: #106EBE;
-            }
-        """)
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
-        layout.setAlignment(Qt.AlignCenter)
-        
-        self.lbl_thumbnail = QLabel()
-        self.lbl_thumbnail.setAlignment(Qt.AlignCenter)
-        self.lbl_thumbnail.setText(f"Drag & Drop Image\nSlot {self.slot_num}\n{self.title}")
-        self.lbl_thumbnail.setStyleSheet("font-size: 10px; color: #888888; border: none; background: transparent;")
-        
-        self.btn_browse = QPushButton("Select Image")
-        self.btn_browse.setStyleSheet("font-size: 10px; padding: 2px 8px;")
-        self.btn_browse.clicked.connect(self.browse_file)
-        
-        layout.addWidget(self.lbl_thumbnail, 1)
-        layout.addWidget(self.btn_browse, 0, Qt.AlignCenter)
-        
-    def dragEnterEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-            self.setStyleSheet("border: 2px dashed #106EBE; background-color: palette(base); border-radius: 6px;")
-            
-    def dragLeaveEvent(self, event):
-        self.reset_style()
-        
-    def dropEvent(self, event):
-        self.reset_style()
-        urls = event.mimeData().urls()
-        if urls:
-            path = urls[0].toLocalFile()
-            self.load_image_path(path)
-            
-    def reset_style(self):
-        self.setStyleSheet("""
-            QFrame {
-                border: 2px dashed #0078D4;
-                border-radius: 6px;
-                background-color: palette(alternate-base);
-            }
-        """)
-        
-    def browse_file(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, f"Select Image for Slot {self.slot_num}", "", 
-            "Image Files (*.jpg *.jpeg *.png *.webp)"
-        )
-        if path:
-            self.load_image_path(path)
-            
-    def load_image_path(self, path: str):
-        if not path or not os.path.exists(path):
-            return
-            
-        suffix = Path(path).suffix.lower()
-        if suffix not in [".jpg", ".jpeg", ".png", ".webp"]:
-            QMessageBox.critical(self, "Invalid Format", f"Format {suffix} is not supported. Please upload JPG, JPEG, PNG, or WEBP.")
-            return
-            
-        try:
-            from PIL import Image
-            with Image.open(path) as img:
-                img.verify()
-                
-            self.image_path = path
-            pix = QPixmap(path)
-            scaled = pix.scaled(150, 95, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.lbl_thumbnail.setPixmap(scaled)
-            self.btn_browse.setText("Replace")
-            self.image_changed.emit(self.slot_num, path)
-        except Exception as e:
-            QMessageBox.critical(self, "Corrupted Image", f"Failed to load image. It may be corrupted:\n{e}")
-
-    def clear_slot(self):
-        self.image_path = None
-        self.lbl_thumbnail.clear()
-        self.lbl_thumbnail.setText(f"Drag & Drop Image\nSlot {self.slot_num}\n{self.title}")
-        self.btn_browse.setText("Select Image")
-        self.image_changed.emit(self.slot_num, "")
-
-
 class ManualPanel(QWidget):
     fields_changed = Signal(dict, dict) # Emits record_data dict, image_paths dict
+    show_banner = Signal(str, str)
 
     def __init__(self):
         super().__init__()
         self.draft_path = DB_DIR / "manual_draft.json"
-        self.slots: Dict[int, ImageUploadSlot] = {}
+        self.slots: Dict[int, DragDropZone] = {}
         
         # Main Splitter Layout for premium spacing control
         main_layout = QHBoxLayout(self)
@@ -141,6 +41,7 @@ class ManualPanel(QWidget):
         
         lbl_title = QLabel("Manual Data Entry Form")
         lbl_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 5px;")
+        lbl_title.setToolTip("Fill out these fields to create a single PDF manually.")
         left_layout.addWidget(lbl_title)
         
         scroll_form = QScrollArea()
@@ -150,7 +51,7 @@ class ManualPanel(QWidget):
         form_layout.setSpacing(8)
         
         # Init inputs
-        self.txt_ias = self._add_field(form_layout, "IAS No. *")
+        self.txt_ias = self._add_field(form_layout, "IAS No. *", "Enter the unique IAS number.")
         self.cmb_ec = self._add_combo(form_layout, "EC Number *", [
             "ORIENTAL MINDORO ELECTRIC COOPERATIVE, INC.",
             "ALBAY ELECTRIC COOPERATIVE, INC.",
@@ -161,38 +62,39 @@ class ManualPanel(QWidget):
             "LEYTE ELECTRIC COOPERATIVE, INC.",
             "QUEZON ELECTRIC COOPERATIVE, INC.",
             "FIRST BUKIDNON ELECTRIC COOPERATIVE, INC."
-        ])
-        self.txt_count = self._add_spin(form_layout, "Beneficiary Count *", 1, 100000, 2000)
-        self.txt_name = self._add_field(form_layout, "Beneficiary Name *")
+        ], "Select the cooperative.")
+        self.txt_count = self._add_spin(form_layout, "Beneficiary Count *", 1, 100000, 2000, "Enter the number associated with this EC.")
+        self.txt_name = self._add_field(form_layout, "Beneficiary Name *", "Enter the full name of the beneficiary.")
         
-        self.txt_purok = self._add_field(form_layout, "Purok/Sitio")
-        self.txt_barangay = self._add_field(form_layout, "Barangay")
-        self.txt_municipality = self._add_field(form_layout, "Municipality")
+        self.txt_purok = self._add_field(form_layout, "Purok/Sitio", "Enter the Purok or Sitio.")
+        self.txt_barangay = self._add_field(form_layout, "Barangay", "Enter the Barangay.")
+        self.txt_municipality = self._add_field(form_layout, "Municipality", "Enter the Municipality.")
         
-        self.txt_address = self._add_field(form_layout, "Full Address *")
+        self.txt_address = self._add_field(form_layout, "Full Address *", "The full composite address.")
         
         # Setup auto-composite
         self.txt_purok.textChanged.connect(self.auto_composite_address)
         self.txt_barangay.textChanged.connect(self.auto_composite_address)
         self.txt_municipality.textChanged.connect(self.auto_composite_address)
         
-        self.txt_lon = self._add_field(form_layout, "Longitude *")
-        self.txt_lon.setValidator(QDoubleValidator(-180.0, 180.0, 7))
-        self.txt_lat = self._add_field(form_layout, "Latitude *")
-        self.txt_lat.setValidator(QDoubleValidator(-90.0, 90.0, 7))
+        self.txt_lon = self._add_field(form_layout, "Longitude *", "Must be a valid decimal number between -180 and 180.")
+        self.txt_lon.textChanged.connect(self._validate_lon)
+        self.txt_lat = self._add_field(form_layout, "Latitude *", "Must be a valid decimal number between -90 and 90.")
+        self.txt_lat.textChanged.connect(self._validate_lat)
         
         self.txt_date = QDateEdit()
         self.txt_date.setCalendarPopup(True)
         self.txt_date.setDate(QDate.currentDate())
         self.txt_date.setDisplayFormat("MMMM dd, yyyy")
+        self.txt_date.setToolTip("Select the date of installation.")
         self.txt_date.dateChanged.connect(self.on_changed)
         form_layout.addWidget(QLabel("Date Installed *"))
         form_layout.addWidget(self.txt_date)
         
-        self.txt_sysbox = self._add_field(form_layout, "System Box S.N.")
-        self.txt_solar = self._add_field(form_layout, "Solar Panel S.N.")
-        self.txt_rep = self._add_field(form_layout, "Representative Name")
-        self.txt_rel = self._add_field(form_layout, "Relationship")
+        self.txt_sysbox = self._add_field(form_layout, "System Box S.N.", "Enter the System Box serial number.")
+        self.txt_solar = self._add_field(form_layout, "Solar Panel S.N.", "Enter the Solar Panel serial number.")
+        self.txt_rep = self._add_field(form_layout, "Representative Name", "Name of the person representing the beneficiary.")
+        self.txt_rel = self._add_field(form_layout, "Relationship", "Relationship of the representative to the beneficiary.")
         
         scroll_form.setWidget(scroll_widget)
         left_layout.addWidget(scroll_form)
@@ -200,14 +102,24 @@ class ManualPanel(QWidget):
         # Generate & Action Buttons
         lyt_actions = QHBoxLayout()
         btn_clear = QPushButton("Clear Form")
+        btn_clear.setToolTip("Clear all fields and photos to start fresh.")
         btn_clear.clicked.connect(self.clear_form)
         
-        btn_generate = QPushButton("Generate PDF")
-        btn_generate.setStyleSheet("background-color: #0078D4; color: white; font-weight: bold;")
-        btn_generate.clicked.connect(self.generate_manual_pdf)
+        self.btn_generate = QPushButton("Generate PDF")
+        self.btn_generate.setStyleSheet("""
+            QPushButton {
+                background-color: #0078D4; color: white; font-weight: bold; padding: 8px; border-radius: 4px;
+            }
+            QPushButton:disabled {
+                background-color: #555555; color: #aaaaaa;
+            }
+        """)
+        self.btn_generate.setToolTip("Please fill in all required fields and upload at least Slot 1 and Slot 2 photos.")
+        self.btn_generate.setEnabled(False)
+        self.btn_generate.clicked.connect(self.generate_manual_pdf)
         
         lyt_actions.addWidget(btn_clear)
-        lyt_actions.addWidget(btn_generate)
+        lyt_actions.addWidget(self.btn_generate)
         left_layout.addLayout(lyt_actions)
         
         # Right Panel (6 Image Slots Grid)
@@ -217,6 +129,7 @@ class ManualPanel(QWidget):
         
         lbl_images = QLabel("Geotagged Photo Documentation")
         lbl_images.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 5px;")
+        lbl_images.setToolTip("Drag and drop photos for each required slot.")
         right_layout.addWidget(lbl_images)
         
         grid_images = QGridLayout()
@@ -232,8 +145,9 @@ class ManualPanel(QWidget):
         }
         
         for slot_num, title in image_titles.items():
-            slot = ImageUploadSlot(slot_num, title)
-            slot.image_changed.connect(self.on_changed)
+            slot = DragDropZone(f"Slot {slot_num}: {title}")
+            # Bind the slot number to the lambda
+            slot.image_changed.connect(lambda path, s=slot_num: self._handle_image_changed(s, path))
             self.slots[slot_num] = slot
             
             row = (slot_num - 1) // 2
@@ -250,32 +164,62 @@ class ManualPanel(QWidget):
         # Restore saved draft if exists
         self.restore_draft()
 
-    def _add_field(self, layout, label_text: str) -> QLineEdit:
+    def _add_field(self, layout, label_text: str, tooltip: str) -> QLineEdit:
         lbl = QLabel(label_text)
         txt = QLineEdit()
+        txt.setToolTip(tooltip)
         txt.textChanged.connect(self.on_changed)
         layout.addWidget(lbl)
         layout.addWidget(txt)
         return txt
         
-    def _add_combo(self, layout, label_text: str, items: list) -> QComboBox:
+    def _add_combo(self, layout, label_text: str, items: list, tooltip: str) -> QComboBox:
         lbl = QLabel(label_text)
         cmb = QComboBox()
+        cmb.setToolTip(tooltip)
         cmb.addItems(items)
         cmb.currentTextChanged.connect(self.on_changed)
         layout.addWidget(lbl)
         layout.addWidget(cmb)
         return cmb
         
-    def _add_spin(self, layout, label_text: str, min_v: int, max_v: int, val: int) -> QSpinBox:
+    def _add_spin(self, layout, label_text: str, min_v: int, max_v: int, val: int, tooltip: str) -> QSpinBox:
         lbl = QLabel(label_text)
         spin = QSpinBox()
+        spin.setToolTip(tooltip)
         spin.setRange(min_v, max_v)
         spin.setValue(val)
         spin.valueChanged.connect(self.on_changed)
         layout.addWidget(lbl)
         layout.addWidget(spin)
         return spin
+        
+    def _validate_lon(self, text):
+        try:
+            val = float(text)
+            if -180.0 <= val <= 180.0:
+                self.txt_lon.setStyleSheet("")
+            else:
+                self.txt_lon.setStyleSheet("border: 1px solid #E81123;")
+        except ValueError:
+            if text: self.txt_lon.setStyleSheet("border: 1px solid #E81123;")
+            else: self.txt_lon.setStyleSheet("")
+        self.on_changed()
+
+    def _validate_lat(self, text):
+        try:
+            val = float(text)
+            if -90.0 <= val <= 90.0:
+                self.txt_lat.setStyleSheet("")
+            else:
+                self.txt_lat.setStyleSheet("border: 1px solid #E81123;")
+        except ValueError:
+            if text: self.txt_lat.setStyleSheet("border: 1px solid #E81123;")
+            else: self.txt_lat.setStyleSheet("")
+        self.on_changed()
+
+    def _handle_image_changed(self, slot_num, path):
+        self.on_changed()
 
     def auto_composite_address(self):
         purok = self.txt_purok.text().strip()
@@ -288,14 +232,36 @@ class ManualPanel(QWidget):
         # Auto save draft
         self.save_draft()
         
-        # Emit signal for live preview updates
         record_data = self.get_record_data()
         image_paths = {k: v.image_path for k, v in self.slots.items() if v.image_path}
+        
+        # Check requirements to enable/disable Generate button
+        required_fields_filled = bool(
+            record_data["ias_no"] and record_data["name"] and record_data["full_address"] and
+            record_data["longitude"] and record_data["latitude"] and record_data["date_installed"]
+        )
+        required_images_filled = bool(image_paths.get(1) and image_paths.get(2))
+        
+        try:
+            float(record_data["longitude"])
+            float(record_data["latitude"])
+            coords_valid = True
+        except:
+            coords_valid = False
+            
+        if required_fields_filled and required_images_filled and coords_valid:
+            self.btn_generate.setEnabled(True)
+            self.btn_generate.setToolTip("Ready to generate PDF!")
+        else:
+            self.btn_generate.setEnabled(False)
+            self.btn_generate.setToolTip("Please fill in all required fields (including valid coordinates) and upload at least Slot 1 and Slot 2 photos.")
+            
+        # Emit signal for live preview updates
         self.fields_changed.emit(record_data, image_paths)
 
     def get_record_data(self) -> dict:
         return {
-            "excel_row": 9999, # Manual Mode signifier
+            "excel_row": 9999,
             "ec": self.cmb_ec.currentText(),
             "ias_no": self.txt_ias.text().strip(),
             "name": self.txt_name.text().strip(),
@@ -318,7 +284,6 @@ class ManualPanel(QWidget):
                 "fields": self.get_record_data(),
                 "images": {k: v.image_path for k, v in self.slots.items() if v.image_path}
             }
-            # Atomic autosave
             tmp_path = str(self.draft_path) + ".tmp"
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=4)
@@ -379,7 +344,10 @@ class ManualPanel(QWidget):
         self.txt_date.setDate(QDate.currentDate())
         
         for slot in self.slots.values():
-            slot.clear_slot()
+            slot.lbl_thumbnail.clear()
+            slot.image_path = None
+            slot.lbl_thumbnail.setText(f"Drag & Drop Image\n{slot.title}")
+            slot.btn_browse.setText("Select Image")
             
         if self.draft_path.exists():
             try:
@@ -427,7 +395,6 @@ class ManualPanel(QWidget):
         self.txt_rep.setText(record_dict.get("representative_name", ""))
         self.txt_rel.setText(record_dict.get("relationship", ""))
         
-        # Extract Purok/Sitio etc if formatted as comma separated
         address = record_dict.get("full_address", "")
         parts = [p.strip() for p in address.split(",")]
         if len(parts) >= 3:
@@ -441,32 +408,22 @@ class ManualPanel(QWidget):
             if qdt.isValid():
                 self.txt_date.setDate(qdt)
                 
-        # Fuzzy match folder in standard assets and auto-load if available
-        # But for inline correction, user will drag and drop the corrected image
         self.on_changed()
 
     def generate_manual_pdf(self):
         record_data = self.get_record_data()
         val = ValidationEngine.validate_record_fields(record_data)
         if not val.is_valid:
-            QMessageBox.critical(self, "Validation Failed", 
-                                 f"Cannot generate PDF due to formatting errors:\n- " + "\n- ".join(val.errors))
+            self.show_banner.emit("error", "Cannot generate PDF due to formatting errors.")
             return
             
         image_paths = {k: v.image_path for k, v in self.slots.items() if v.image_path}
         
-        # Verify slot 1 & 2 are uploaded as they are absolutely critical for Page 2
-        if not image_paths.get(1) or not image_paths.get(2):
-            QMessageBox.warning(self, "Missing Photos", 
-                                "Slot 1 (IAS Form) and Slot 2 (Solar Panel Photo) are mandatory for layout rendering.")
-            return
-
         out_folder = QFileDialog.getExistingDirectory(self, "Select Output Folder for PDF")
         if not out_folder:
             return
             
         try:
-            # Create a full record
             record = BeneficiaryRecord(
                 excel_row=9999,
                 ec=record_data["ec"],
@@ -477,21 +434,21 @@ class ManualPanel(QWidget):
                 representative_name=record_data["representative_name"],
                 relationship=record_data["relationship"],
                 longitude=record_data["longitude"],
-                latitude=record_data["latitude"]
+                latitude=record_data["latitude"],
+                system_box_sn=record_data["system_box_sn"],
+                solar_panel_sn=record_data["solar_panel_sn"]
             )
             
             engine = PDFEngine()
             final_path = engine.generate(record, image_paths, out_folder)
             
+            from core.validation_engine import PDFValidator
             val_res = PDFValidator.validate(final_path)
             if not val_res.is_valid:
-                raise Exception(f"Generated PDF failed structural verification: {', '.join(val_res.errors)}")
+                raise Exception("Generated PDF failed structural verification.")
                 
-            QMessageBox.information(self, "PDF Generated", 
-                                    f"Successfully generated whitelabeled ReportLab PDF:\n{final_path}")
-            
-            # Reset draft since we exported successfully
+            self.show_banner.emit("success", f"Successfully generated PDF: {final_path}")
             self.clear_form()
             
         except Exception as e:
-            QMessageBox.critical(self, "Generation Failed", f"Failed to compile ReportLab PDF:\n{e}")
+            self.show_banner.emit("error", f"Failed to generate PDF: {e}")

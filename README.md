@@ -1,14 +1,17 @@
 # Costplus IR Report Generator
 
-A robust, enterprise-grade Windows desktop application built to automate the generation of Installation Reports (IR) and PDFs for the Cost Plus Inc. Household Electrification Program. 
+A robust, enterprise-grade desktop application built to automate the generation of Installation Reports (IR) and PDFs for the Cost Plus Inc. Household Electrification Program. 
 
 ## Features
 * **Automated PDF Generation:** Rapidly generate pixel-perfect A4 PDF documentation utilizing reportlab and PyMuPDF.
 * **Smart Image Matching:** Employs RapidFuzz to dynamically match Excel beneficiary names to respective local image folders.
-* **Excel Data Parsing:** Validates and structures datasets from Excel, ensuring data integrity via strict validations on GPS coordinates, required columns, and dates.
-* **Resilient Worker Architecture:** Powered by a multi-threaded `QThread` worker supervisor, handling parallel processing, preventing UI lockups, and auto-restarting frozen PDF workers.
-* **State Recovery & Persistence:** A robust SQLite database engine tracking progress and maintaining job states, allowing for seamless recovery of interrupted batches.
-* **Premium UI Experience:** Designed with a modern PySide6 layout featuring fluent light/dark modes, an interactive dashboard, live queue monitoring, and built-in log consoles.
+* **Two-Tier Pre-flight Duplicate Detection:**
+  * **Data Deduplication:** Scans memory-loaded Excel records for duplicate identifiers across IAS No, Name, and System Box/Solar Panel Serial Numbers.
+  * **Image Deduplication:** Prevents image reuse through strict SHA-256 (exact matches) and perceptual hashing (visually identical photos via `imagehash`).
+* **Guided "Idiot-Proof" Workflow:** A strictly guided, 4-step linear UI flow that locks out subsequent execution until prerequisites are fully validated. Built with plain-language, non-technical error flags.
+* **Resilient Worker Architecture:** Powered by a multi-threaded `QThread` worker supervisor handling parallel processing, preventing UI lockups, and auto-restarting frozen PDF workers.
+* **State Recovery & Persistence:** A robust SQLite database engine tracking progress, logging analytical data, and maintaining job states, allowing for seamless recovery of interrupted batches.
+* **Premium UI Experience:** Designed with a modern PySide6 layout featuring fluent light/dark modes, an interactive "alive" dashboard, universal non-blocking dropdown notification banners, and drag-and-drop manual processing.
 
 ---
 
@@ -21,17 +24,17 @@ cd WIRPG
 ```
 
 ### 2. Set Up Python Environment
-Ensure you have **Python 3.11+** installed on your Windows machine.
+Ensure you have **Python 3.9+** installed on your machine.
 
 Create and activate a virtual environment:
 ```bash
 python -m venv venv
 
-# On Command Prompt:
-venv\Scripts\activate.bat
+# On macOS/Linux:
+source venv/bin/activate
 
-# On PowerShell:
-venv\Scripts\Activate.ps1
+# On Windows:
+venv\Scripts\activate
 ```
 
 ### 3. Install Dependencies
@@ -46,6 +49,11 @@ pip install -r requirements.txt
 To run the application directly from source (useful for development and testing):
 ```bash
 python main.py
+```
+
+### Running Unit Tests
+```bash
+python -m unittest discover tests
 ```
 
 ---
@@ -67,10 +75,13 @@ If you wish to create a full installation wizard (with start menu shortcuts and 
 
 ## ⚙️ How to Use Batch Processing
 1. Navigate to the **Batch Processing** panel in the app.
-2. Select your Data Source (`.xlsx` or `.xls`).
-3. Select your Root Images Folder.
-4. Set an Output Destination for the generated PDFs.
-5. Click **Start Batch** and monitor progress in real-time on the Queue Monitor or Dashboard.
+2. Follow the numbered, visually locked 4-step workflow:
+   * **Step 1:** Select your Data Source (`.xlsx` or `.xls`).
+   * **Step 2:** Select your Root Images Folder.
+   * **Step 3:** Set an Output Destination for the generated PDFs.
+   * **Step 4:** Click **Start Batch**.
+3. Any blocked duplicates or format issues will securely trigger the plain-language notification banners, refusing to generate flawed queues.
+4. Monitor "alive" progress in real-time on the Dashboard, seeing precise ETAs.
 
 ---
 *Made By Hanshuk Sathe*

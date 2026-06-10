@@ -9,6 +9,8 @@ class BeneficiaryRecord:
     ias_no: str
     name: str
     full_address: str
+    system_box_sn: str
+    solar_panel_sn: str
     date_installed: str          
     representative_name: str     
     relationship: str            

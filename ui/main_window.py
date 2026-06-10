@@ -7,6 +7,7 @@ from ui.preview_panel import PreviewPanel
 from ui.flagged_panel import FlaggedPanel
 from ui.log_console import LogConsole
 from ui.settings_dialog import SettingsDialog
+from ui.widgets.notification_banner import NotificationBanner
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -77,10 +78,26 @@ class MainWindow(QMainWindow):
         self.flagged_panel.load_record_to_manual.connect(self.load_record_for_manual_fix)
         self.flagged_panel.reprocess_triggered.connect(lambda: self.stack.setCurrentIndex(0))
         
-        self.statusBar().showMessage("Ready")
+        self.banner = NotificationBanner(self)
+        self.flagged_panel.show_banner.connect(self._handle_banner)
+        self.batch_panel.show_banner.connect(self._handle_banner)
+        self.manual_panel.show_banner.connect(self._handle_banner)
+        
+        self.statusBar().showMessage("Ready — load an Excel file to get started")
         
         lbl_madeby = QLabel("Made By Hanshuk Sathe")
         self.statusBar().addPermanentWidget(lbl_madeby)
+        
+    def _handle_banner(self, btype, msg):
+        if btype == "success": self.banner.show_success(msg)
+        elif btype == "warning": self.banner.show_warning(msg)
+        elif btype == "error": self.banner.show_error(msg)
+        
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Ensure banner stays centered
+        if hasattr(self, 'banner') and self.banner.isVisible():
+            self.banner.move((self.width() - self.banner.width()) // 2, 0)
         
     def load_record_for_manual_fix(self, record_dict):
         self.manual_panel.load_record(record_dict)

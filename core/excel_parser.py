@@ -33,7 +33,9 @@ class ExcelParser:
             "representative_name": ["NAME OF REPRESENTATIVE", "REPRESENTATIVE NAME", "REP NAME"],
             "relationship": ["RELATIONSHIP", "RELATION"],
             "longitude": ["LONGITUDE", "LONG", "LON"],
-            "latitude": ["LATITUDE", "LAT"]
+            "latitude": ["LATITUDE", "LAT"],
+            "system_box_sn": ["SYSTEM BOX SN", "SYSTEM BOX S.N", "SYSTEM BOX", "SYS BOX"],
+            "solar_panel_sn": ["SOLAR PANEL SN", "SOLAR PANEL S.N", "SOLAR PANEL", "PANEL SN"]
         }
         
         for idx, col in enumerate(columns):
@@ -95,6 +97,8 @@ class ExcelParser:
             ec = get_val("ec")
             full_address = get_val("full_address")
             date_installed = get_val("date_installed")
+            system_box_sn = get_val("system_box_sn", "")
+            solar_panel_sn = get_val("solar_panel_sn", "")
             rep_name = get_val("representative_name", "N/A")
             relationship = get_val("relationship", "N/A")
             longitude = get_val("longitude")
@@ -143,6 +147,8 @@ class ExcelParser:
                 ias_no=ias_no,
                 name=name,
                 full_address=full_address,
+                system_box_sn=system_box_sn,
+                solar_panel_sn=solar_panel_sn,
                 date_installed=formatted_date,
                 representative_name=rep_name,
                 relationship=relationship,

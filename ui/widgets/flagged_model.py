@@ -28,10 +28,20 @@ class FlaggedRecordsModel(QAbstractTableModel):
         if role == Qt.DisplayRole:
             if col == 0: return record.get("ias_no", "N/A")
             elif col == 1: return record.get("name", "N/A")
-            elif col == 2: return record.get("error_type", "N/A")
+            elif col == 2: 
+                err = record.get("error_type", "N/A")
+                if err == "DUPLICATE_BLOCKED": return "Blocked — duplicate record"
+                if err == "IMAGE_DUPLICATE_BLOCKED": return "Blocked — photo already used"
+                if err == "MISSING_IMAGES": return "Missing Photos"
+                return err
             elif col == 3: return record.get("missing_fields") or "None"
             elif col == 4: return record.get("missing_images") or "None"
-            elif col == 5: return record.get("suggested_fix") or "N/A"
+            elif col == 5: 
+                err = record.get("error_type", "N/A")
+                if err == "DUPLICATE_BLOCKED": return "Fix the Excel file and re-run."
+                if err == "IMAGE_DUPLICATE_BLOCKED": return "Replace the duplicate photos and reprocess."
+                if err == "MISSING_IMAGES": return "Create a folder with exact same name and add photos."
+                return record.get("suggested_fix") or "N/A"
             elif col == 6: return record.get("timestamp") or "N/A"
             elif col == 7: return str(record.get("retry_count", 0))
             elif col == 8: return record.get("status", "N/A")

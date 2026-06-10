@@ -12,8 +12,8 @@ class TestExcelParser(unittest.TestCase):
         
         df = pd.DataFrame({
             "IAS No": ["IAS001"], "Item No": ["1"], "Name": ["John Doe"],
-            "Purok/Sitio": ["Sitio 1"], "Barangay": ["Brgy 1"],
-            "Municipality": ["Muni 1"], "System Box S.N": ["BX1"],
+            "Full Address": ["123 Fake St, Brgy 1, Muni 1"],
+            "System Box S.N": ["BX1"],
             "Solar Panel S.N": ["SP1"], "Longitude": [121.0],
             "Latitude": [14.0], "Date Installed": ["2024-01-01"]
         })

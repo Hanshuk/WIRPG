@@ -11,6 +11,8 @@ from core.queue_manager import QueueManager
 from core.worker_supervisor import WorkerSupervisor
 from core.recovery_manager import RecoveryManager
 from core.validation_engine import ValidationEngine
+from core.duplicate_detector import DuplicateDetector
+from core.image_duplicate_detector import ImageDuplicateDetector
 from logging_engine.logger import app_logger
 from utils.file_utils import ensure_dir
 
@@ -49,13 +51,40 @@ class BatchProcessor(QObject):
             records = parser.parse()
             if not records:
                 raise Exception("No valid records found in Excel file.")
+
+            # 1. Excel Field Duplicate Detection
+            dup_detector = DuplicateDetector()
+            dup_detector.detect_duplicates(records)
+            
+            # 2. Build Image Index
+            self.image_matcher.build_index(images_folder)
+            
+            # 3. Image Perceptual Duplicate Detection (Pre-flight)
+            img_dup_detector = ImageDuplicateDetector()
+            
+            # Filter out records that already have validation errors
+            valid_records = []
+            for r in records:
+                if r.validation_errors:
+                    # Skip queueing this record or queue it as FAILED.
+                    # As per standard workflow, we can queue it with errors so it shows up in Flagged Records.
+                    pass
+                
+                # Check images
+                matched_path, _, _ = self.image_matcher.match(r.name)
+                if matched_path:
+                    image_paths = self.image_matcher.get_image_paths(matched_path)
+                    for slot, path in image_paths.items():
+                        is_dup, err_msg = img_dup_detector.check_and_register(f"{r.ias_no}_s{slot}", path, r.ias_no, slot)
+                        if is_dup:
+                            r.validation_errors.append(f"Image Slot {slot} Duplicate: {err_msg}")
+                            
             self.total_rows = len(records)
             
             record_dict = {r.ias_no: r for r in records}
 
             self.session_id = self.recovery_manager.start_session(excel_path, images_folder, output_folder, template_path or "", self.total_rows)
 
-            self.image_matcher.build_index(images_folder)
             self.queue_manager.enqueue(records)
 
             self.template_engine.load(template_path)
