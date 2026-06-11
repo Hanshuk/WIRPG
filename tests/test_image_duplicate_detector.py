@@ -123,5 +123,49 @@ class TestImageDuplicateDetector(unittest.TestCase):
             cur = conn.execute("SELECT COUNT(*) FROM image_hash_registry")
             self.assertEqual(cur.fetchone()[0], 0)
 
+    def test_real_duplicate_different_folders(self):
+        # 1. create two folders
+        folder1 = os.path.join(self.test_dir, "BEN_A")
+        folder2 = os.path.join(self.test_dir, "BEN_B")
+        os.makedirs(folder1)
+        os.makedirs(folder2)
+        
+        # 2. copy same image to both
+        pathA = os.path.join(folder1, "photo.jpg")
+        pathB = os.path.join(folder2, "photo.jpg")
+        shutil.copy(self.img1_path, pathA)
+        shutil.copy(self.img1_path, pathB)
+        
+        # 3. test detection
+        detector = ImageDuplicateDetector()
+        is_dup, err = detector.check_and_register("IDA", pathA, "IAS_A", 1)
+        self.assertFalse(is_dup)
+        
+        is_dup, err = detector.check_and_register("IDB", pathB, "IAS_B", 1)
+        self.assertTrue(is_dup)
+        self.assertIn("Exact image copy found", err)
+
+    def test_direct_hash_insertion(self):
+        # Insert known hashes directly
+        detector = ImageDuplicateDetector()
+        hashes = detector.compute_hashes(self.img1_path)
+        sha256_hash, p_hash_str, d_hash_str = hashes
+        
+        with db.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO image_hash_registry 
+                (image_id, sha256_hash, phash, dhash, file_path, ias_no, slot, registered_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                ("MOCK_ID", sha256_hash, p_hash_str, d_hash_str, "mock_path.jpg", "IAS_MOCK", 1, "2026-01-01T00:00:00")
+            )
+            conn.commit()
+            
+        # Running detection should be blocked
+        is_dup, err = detector.check_and_register("NEW_ID", self.img1_path, "IAS_NEW", 1)
+        self.assertTrue(is_dup)
+        self.assertIn("Exact image copy found", err)
+
 if __name__ == '__main__':
     unittest.main()

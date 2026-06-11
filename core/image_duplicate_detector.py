@@ -4,10 +4,15 @@ import logging
 from typing import Tuple, List, Optional
 from datetime import datetime
 from PIL import Image
-import imagehash
-from db.database import db
-
 logger = logging.getLogger("CostPlusSolarDocs.image_duplicate_detector")
+
+try:
+    import imagehash
+except ImportError as e:
+    logger.error("DEBUG: FAILED TO IMPORT imagehash! Image duplicate detection will fail.")
+    raise
+
+from db.database import db
 
 class ImageDuplicateDetector:
     def __init__(self):
@@ -68,7 +73,7 @@ class ImageDuplicateDetector:
                 if exact_match["ias_no"] == ias_no and exact_match["slot"] == slot:
                     # Same exact record, not a conflict
                     return False, None
-                return True, f"Exact image copy found (used by IAS {exact_match['ias_no']} slot {exact_match['slot']})"
+                return True, exact_match['ias_no']
 
             # Tier 2: Check Perceptual Hashes
             cursor = conn.execute("SELECT ias_no, slot, phash, dhash, file_path FROM image_hash_registry")
@@ -86,7 +91,7 @@ class ImageDuplicateDetector:
                     d_diff = d_hash - existing_d
                     
                     if p_diff <= self.threshold and d_diff <= self.threshold:
-                        return True, f"Perceptual duplicate (pDiff:{p_diff}, dDiff:{d_diff}) of image used by IAS {row['ias_no']} slot {row['slot']}"
+                        return True, row['ias_no']
                 except Exception:
                     continue
 

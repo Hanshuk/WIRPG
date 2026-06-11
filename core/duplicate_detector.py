@@ -1,6 +1,6 @@
 import logging
 from typing import List, Dict, Set
-from db.models import BeneficiaryRecord
+from db.models import BeneficiaryRecord, ValidationError, ErrorCode
 
 logger = logging.getLogger("CostPlusSolarDocs.duplicate_detector")
 
@@ -52,13 +52,22 @@ class DuplicateDetector:
             for val, matched_records in value_map.items():
                 if len(matched_records) > 1:
                     duplicate_count += 1
-                    # Block all matching rows
-                    rows_involved = [str(r.excel_row) for r in matched_records]
-                    err_msg = f"Duplicate found on field '{field}' with value '{val}'. Conflicting rows: {', '.join(rows_involved)}"
+                    names = [r.name for r in matched_records]
+                    names_str = " and ".join(names) if len(names) == 2 else ", ".join(names[:-1]) + ", and " + names[-1]
+                    
+                    field_display = field.replace('_', ' ').title()
+                    if field == "ias_no": field_display = "IAS NO"
+                    elif field == "system_box_sn": field_display = "System Box Serial Number"
+                    elif field == "solar_panel_sn": field_display = "Solar Panel Serial Number"
+                    elif field == "longitude": field_display = "Longitude value"
+                    elif field == "latitude": field_display = "Latitude value"
+                    
+                    # Store original error value in the message (if needed) but display the nice string
+                    err_msg = f"{names_str} share the same {field_display} ({val})"
                     
                     for rec in matched_records:
-                        if err_msg not in rec.validation_errors:
-                            rec.validation_errors.append(err_msg)
+                        if not any(e.message == err_msg for e in rec.validation_errors):
+                            rec.validation_errors.append(ValidationError(ErrorCode.EXCEL_DUPLICATE, err_msg))
 
         if duplicate_count > 0:
             logger.warning(f"Detected {duplicate_count} unique value collisions across {len(records)} records.")

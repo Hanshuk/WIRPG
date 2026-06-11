@@ -24,7 +24,7 @@ class TestDuplicateDetector(unittest.TestCase):
         
         for r in records:
             self.assertEqual(len(r.validation_errors), 1)
-            self.assertIn("Duplicate found on field 'ias_no'", r.validation_errors[0])
+            self.assertIn("Duplicate found on field 'ias_no'", r.validation_errors[0].message)
 
     def test_system_box_duplicate(self):
         records = [
@@ -36,7 +36,7 @@ class TestDuplicateDetector(unittest.TestCase):
         
         for r in records:
             self.assertEqual(len(r.validation_errors), 1)
-            self.assertIn("Duplicate found on field 'system_box_sn'", r.validation_errors[0])
+            self.assertIn("Duplicate found on field 'system_box_sn'", r.validation_errors[0].message)
 
     def test_ignores_blank_fields(self):
         records = [
@@ -59,7 +59,7 @@ class TestDuplicateDetector(unittest.TestCase):
         detector.detect_duplicates(records)
         for r in records:
             self.assertEqual(len(r.validation_errors), 1)
-            self.assertIn("Duplicate found on field 'name'", r.validation_errors[0])
+            self.assertIn("Duplicate found on field 'name'", r.validation_errors[0].message)
 
     def test_solar_panel_duplicate(self):
         records = [
@@ -70,7 +70,7 @@ class TestDuplicateDetector(unittest.TestCase):
         detector.detect_duplicates(records)
         for r in records:
             self.assertEqual(len(r.validation_errors), 1)
-            self.assertIn("Duplicate found on field 'solar_panel_sn'", r.validation_errors[0])
+            self.assertIn("Duplicate found on field 'solar_panel_sn'", r.validation_errors[0].message)
 
     def test_coordinates_duplicate(self):
         records = [

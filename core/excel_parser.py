@@ -1,6 +1,6 @@
 import pandas as pd
 from typing import List
-from db.models import BeneficiaryRecord
+from db.models import BeneficiaryRecord, ValidationError, ErrorCode
 import logging
 import math
 
@@ -110,8 +110,8 @@ class ExcelParser:
             errors = []
             warnings = []
 
-            if not ias_no: errors.append("Missing IAS NO")
-            if not name: errors.append("Missing NAME")
+            if not ias_no: errors.append(ValidationError(ErrorCode.MISSING_FIELD, "Missing IAS NO"))
+            if not name: errors.append(ValidationError(ErrorCode.MISSING_FIELD, "Missing NAME"))
             
             if ias_no in ias_seen:
                 warnings.append(f"Duplicate IAS NO: {ias_no}")
@@ -121,16 +121,16 @@ class ExcelParser:
             try:
                 lon_f = float(longitude)
                 if not (-180 <= lon_f <= 180):
-                    errors.append(f"Longitude out of range: {longitude}")
+                    errors.append(ValidationError(ErrorCode.INVALID_GPS, f"Longitude out of range: {longitude}"))
             except ValueError:
-                errors.append(f"Invalid longitude: {longitude}")
+                errors.append(ValidationError(ErrorCode.INVALID_GPS, f"Invalid longitude: {longitude}"))
 
             try:
                 lat_f = float(latitude)
                 if not (-90 <= lat_f <= 90):
-                    errors.append(f"Latitude out of range: {latitude}")
+                    errors.append(ValidationError(ErrorCode.INVALID_GPS, f"Latitude out of range: {latitude}"))
             except ValueError:
-                errors.append(f"Invalid latitude: {latitude}")
+                errors.append(ValidationError(ErrorCode.INVALID_GPS, f"Invalid latitude: {latitude}"))
 
             # Try to coerce date
             formatted_date = date_installed

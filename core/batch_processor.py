@@ -15,6 +15,7 @@ from core.duplicate_detector import DuplicateDetector
 from core.image_duplicate_detector import ImageDuplicateDetector
 from logging_engine.logger import app_logger
 from utils.file_utils import ensure_dir
+from db.models import ValidationError, ErrorCode
 
 class BatchProcessor(QObject):
     batch_completed = Signal(str)
@@ -35,52 +36,59 @@ class BatchProcessor(QObject):
         self.progress_timer = QTimer(self)
         self.progress_timer.timeout.connect(self._check_progress)
 
-    def start_batch(self, excel_path: str, images_folder: str, output_folder: str, template_path: str = None):
-        try:
-            val_excel = ValidationEngine.validate_excel(excel_path)
-            if not val_excel.is_valid:
-                raise Exception(f"Excel validation failed: {', '.join(val_excel.errors)}")
-                
-            val_images = ValidationEngine.validate_images_folder(images_folder)
-            if not val_images.is_valid:
-                raise Exception(f"Images folder validation failed: {', '.join(val_images.errors)}")
-            for w in val_images.warnings:
-                app_logger.warning(w)
+    def prepare_batch(self, excel_path: str, images_folder: str) -> tuple:
+        val_excel = ValidationEngine.validate_excel(excel_path)
+        if not val_excel.is_valid:
+            raise Exception(f"Excel validation failed: {', '.join(val_excel.errors)}")
+            
+        val_images = ValidationEngine.validate_images_folder(images_folder)
+        if not val_images.is_valid:
+            raise Exception(f"Images folder validation failed: {', '.join(val_images.errors)}")
+        for w in val_images.warnings:
+            app_logger.warning(w)
 
-            parser = ExcelParser(excel_path)
-            records = parser.parse()
-            if not records:
-                raise Exception("No valid records found in Excel file.")
+        parser = ExcelParser(excel_path)
+        records = parser.parse()
+        if not records:
+            raise Exception("No valid records found in Excel file.")
 
-            # 1. Excel Field Duplicate Detection
-            dup_detector = DuplicateDetector()
-            dup_detector.detect_duplicates(records)
-            
-            # 2. Build Image Index
-            self.image_matcher.build_index(images_folder)
-            
-            # 3. Image Perceptual Duplicate Detection (Pre-flight)
-            img_dup_detector = ImageDuplicateDetector()
-            
-            # Filter out records that already have validation errors
-            valid_records = []
-            for r in records:
-                if r.validation_errors:
-                    # Skip queueing this record or queue it as FAILED.
-                    # As per standard workflow, we can queue it with errors so it shows up in Flagged Records.
-                    pass
+        # 1. Excel Field Duplicate Detection
+        dup_detector = DuplicateDetector()
+        dup_detector.detect_duplicates(records)
+        
+        # 2. Build Image Index
+        self.image_matcher.build_index(images_folder)
+        
+        # 3. Image Perceptual Duplicate Detection (Pre-flight)
+        img_dup_detector = ImageDuplicateDetector()
+        
+        excel_dups = []
+        image_dups = []
+        record_dict = {r.ias_no: r for r in records}
+        
+        for r in records:
+            has_excel_dup = any(e.code == ErrorCode.EXCEL_DUPLICATE for e in r.validation_errors)
+            if has_excel_dup:
+                excel_dups.append(r)
                 
-                # Check images
-                matched_path, _, _ = self.image_matcher.match(r.name)
-                if matched_path:
-                    image_paths = self.image_matcher.get_image_paths(matched_path)
-                    for slot, path in image_paths.items():
-                        is_dup, err_msg = img_dup_detector.check_and_register(f"{r.ias_no}_s{slot}", path, r.ias_no, slot)
-                        if is_dup:
-                            r.validation_errors.append(f"Image Slot {slot} Duplicate: {err_msg}")
+            # Check images
+            matched_path, _, _ = self.image_matcher.match(r.name)
+            if matched_path:
+                image_paths = self.image_matcher.get_image_paths(matched_path)
+                for slot, path in image_paths.items():
+                    is_dup, matched_ias = img_dup_detector.check_and_register(f"{r.ias_no}_s{slot}", path, r.ias_no, slot)
+                    if is_dup:
+                        matched_name = record_dict[matched_ias].name if matched_ias in record_dict else matched_ias
+                        msg = f"{r.name} has a photo that is an exact copy of a photo already used for {matched_name}"
+                        r.validation_errors.append(ValidationError(ErrorCode.IMAGE_DUPLICATE, msg))
+                        if r not in image_dups:
+                            image_dups.append(r)
                             
+        return records, excel_dups, image_dups
+
+    def commit_batch(self, records: list, excel_path: str, images_folder: str, output_folder: str, template_path: str = None):
+        try:
             self.total_rows = len(records)
-            
             record_dict = {r.ias_no: r for r in records}
 
             self.session_id = self.recovery_manager.start_session(excel_path, images_folder, output_folder, template_path or "", self.total_rows)

@@ -3,7 +3,7 @@ import hashlib
 import json
 from datetime import datetime
 from typing import List, Optional, Dict
-from db.models import QueueEntry, BeneficiaryRecord
+from db.models import QueueEntry, BeneficiaryRecord, ErrorCode
 from db.database import db
 import threading
 
@@ -34,11 +34,23 @@ class QueueManager:
                     continue
                     
                 q_id = str(uuid.uuid4())
+                
+                status = 'PENDING'
+                error_msg = ''
+                if rec.validation_errors:
+                    error_msg = " | ".join([e.message for e in rec.validation_errors])
+                    if any(e.code == ErrorCode.IMAGE_DUPLICATE for e in rec.validation_errors):
+                        status = 'IMAGE_DUPLICATE_BLOCKED'
+                    elif any(e.code == ErrorCode.EXCEL_DUPLICATE for e in rec.validation_errors):
+                        status = 'DUPLICATE_BLOCKED'
+                    else:
+                        status = 'FLAGGED'
+                    
                 conn.execute("""
                     INSERT INTO processing_queue 
                     (queue_id, ias_no, name, excel_row, status, retry_count, error_message, output_path, created_at, updated_at, checksum)
-                    VALUES (?, ?, ?, ?, 'PENDING', 0, '', '', ?, ?, ?)
-                """, (q_id, rec.ias_no, rec.name, rec.excel_row, now, now, checksum))
+                    VALUES (?, ?, ?, ?, ?, 0, ?, '', ?, ?, ?)
+                """, (q_id, rec.ias_no, rec.name, rec.excel_row, status, error_msg, now, now, checksum))
             conn.commit()
 
     def dequeue_next(self) -> Optional[Dict]:

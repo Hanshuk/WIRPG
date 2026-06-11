@@ -1,9 +1,10 @@
 import os
 import pandas as pd
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QProgressBar, QFrame, QSizePolicy
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit, QFileDialog, QProgressBar, QFrame, QSizePolicy, QDialog
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QIcon, QPixmap
 from core.batch_processor import BatchProcessor
+from ui.widgets.preflight_report_dialog import PreFlightReportDialog
 
 class StepWidget(QFrame):
     def __init__(self, step_num, title, tooltip):
@@ -194,9 +195,23 @@ class BatchPanel(QWidget):
             self.btn_start.setToolTip("Please complete Steps 1, 2, and 3 first.")
 
     def start_batch(self):
-        self.batch_started.emit()
-        self.show_banner.emit("success", "Batch started! Switching to Dashboard...")
-        self.processor.start_batch(self.step1.txt_path.text(), self.step2.txt_path.text(), self.step3.txt_path.text())
+        try:
+            records, excel_dups, image_dups = self.processor.prepare_batch(
+                self.step1.txt_path.text(), 
+                self.step2.txt_path.text()
+            )
+            
+            if excel_dups or image_dups:
+                dialog = PreFlightReportDialog(excel_dups, image_dups, self)
+                if dialog.exec() == QDialog.Rejected:
+                    self.show_banner.emit("warning", "Batch cancelled by user.")
+                    return
+            
+            self.batch_started.emit()
+            self.show_banner.emit("success", "Batch started! Switching to Dashboard...")
+            self.processor.commit_batch(records, self.step1.txt_path.text(), self.step2.txt_path.text(), self.step3.txt_path.text())
+        except Exception as e:
+            self.show_banner.emit("error", f"Failed to start batch: {str(e)}")
         
     def update_progress(self, completed, total):
         pass # UI updates handled elsewhere now via dashboard
